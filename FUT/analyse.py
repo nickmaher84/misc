@@ -24,8 +24,9 @@ def generate_team(quality, nation=None, league=None, types=('standard', 'rare'),
     if isinstance(price, int):
         parameters['price.ps4.latest'] = {'$lte': price}
 
-    players = [p for p in PLAYERS.find(parameters).sort('rating' if worst else '-rating')]
+    players = [p for p in PLAYERS.find(parameters).sort('price.ps4.latest')]
     print('{0} possible players found.'.format(len(players)))
+    players.sort(key=lambda p: p['rating'], reverse=not worst)
 
     formation_name, rating = None, 9999 if worst else 0
     for formation in FORMATIONS.find().sort('name'):
