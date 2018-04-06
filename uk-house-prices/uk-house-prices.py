@@ -1,8 +1,12 @@
-from settings import SITE, API, prices
+""" Read this: https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads """
+
 from requests import get
 from csv import DictReader
 from uuid import UUID
 from datetime import datetime
+from mongo import db
+
+endpoint = 'http://prod2.publicdata.landregistry.gov.uk.s3-website-eu-west-1.amazonaws.com/'
 
 PROPERTY_TYPES = {'D': 'Detached',
                   'S': 'Semi-Detached',
@@ -11,53 +15,104 @@ PROPERTY_TYPES = {'D': 'Detached',
                   'O': 'Other'}
 
 
-def download_file(filename='pp-monthly-update.txt'):
-    response = get(SITE+filename)
-    print(response.status_code, response.url)
-    header = ['uuid', 'price', 'date', 'postcode', 'property_type', 'new_build', 'freehold',
-              'PAON', 'SAON', 'street', 'locality', 'town', 'district', 'county', 'standard_price', 'status']
-    reader = DictReader(response.text.splitlines(), fieldnames=header)
+def current_month():
+    return endpoint + 'pp-monthly-update.txt'
 
+
+def current_year():
+    year = datetime.today().year
+    return previous_year(year)
+
+
+def previous_year(year):
+    return endpoint + 'pp-{year}.txt'.format(year=year)
+
+
+def complete():
+    return endpoint + 'pp-complete.txt'
+
+
+def download_file(url):
+    collection = db['house-prices']
+    fieldnames = [
+        'uuid',
+        'price',
+        'date',
+        'address.postcode',
+        'details.property_type',
+        'details.new_build',
+        'details.freehold',
+        'address.PAON',
+        'address.SAON',
+        'address.street',
+        'address.locality',
+        'address.town',
+        'address.district',
+        'address.county',
+        'details.standard_price',
+        'status',
+    ]
+
+    response = get(url, stream=True, allow_redirects=False)
+    print(response.status_code, response.url)
+    response.raise_for_status()
+
+    reader = DictReader(response.iter_lines(decode_unicode=True), fieldnames=fieldnames)
     for row in reader:
-        row['uuid'] = UUID(row['uuid'])
+        uuid = UUID(row.pop('uuid'))
         row['date'] = datetime.strptime(row['date'], '%Y-%m-%d %H:%M')
         row['price'] = int(row['price'])
-        row['standard_price'] = row['standard_price'] == 'A'
-
-        row['detail'] = {
-            'property_type': PROPERTY_TYPES[row.pop('property_type')],
-            'new_build': row.pop('new_build') == 'Y',
-            'freehold': row.pop('freehold') == 'F'
-        }
-
-        row['location'] = {}
-        for field in ['PAON', 'SAON', 'street', 'locality', 'town', 'district', 'county', 'postcode']:
-            row['location'][field] = row.pop(field)
 
         if row.get('status') == 'D':
-            prices.delete_one({'uuid': row['uuid']})
+            collection.delete_one(
+                {'_id': uuid}
+            )
+
+        elif row.get('status') == 'U':
+            row.pop('status')
+            collection.update_one(
+                {'_id': uuid},
+                {'$set': row}
+            )
+
         else:
             row.pop('status')
-            prices.update_one({'uuid': row['uuid']}, {'$set': row}, upsert=True)
-        print('{uuid} {date}: £{price:,.0f} {location[town]}'.format(**row))
+            collection.update_one(
+                {'_id': uuid},
+                {'$setOnInsert': row},
+                upsert=True
+            )
 
-        if reader.line_num % 100 == 0:
+        if reader.line_num % 10000 == 0:
             print('{0:,.0f} rows loaded'.format(reader.line_num))
 
     print('{0:,.0f} rows loaded'.format(reader.line_num))
 
 
-def load_postcodes(q=None, limit=None):
-    for price in prices.find(q if q else {}).limit(limit):
-        r = get(API.format(price['location']['postcode'])).json()
-        if r['status'] == 200:
-            for k, v in r['result'].items():
-                price['location'][k] = v
+def load_postcodes(query):
+    collection = db['house-prices']
+    url = 'https://api.postcodes.io/postcodes/{0}'
+
+    postcodes = collection.distinct('address.postcode', query=query)
+    print('{0} postcodes found'.format(len(postcodes)))
+
+    for postcode in postcodes:
+        response = get(url.format(postcode))
+        data = response.json()
+
+        if data['status'] == 200:
+            locality = {'locality': data['result']}
         else:
-            print(r)
-        prices.save(price)
+            locality = {'locality': data}
+
+        result = collection.update_many(
+            {'address.postcode': postcode},
+            {'$set': locality}
+        )
+
+        print('{0}: {1} records updated'.format(postcode, result.modified_count))
 
 
 if __name__ == '__main__':
-    download_file()
-    load_postcodes()
+    f = current_month()
+    download_file(f)
