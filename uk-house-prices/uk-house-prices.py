@@ -14,6 +14,15 @@ PROPERTY_TYPES = {'D': 'Detached',
                   'F': 'Flat/Maisonette',
                   'O': 'Other'}
 
+NEW_BUILD = {'Y': 'New build',
+             'N': 'Existing property'}
+
+FREEHOLD = {'F': 'Freehold',
+            'L': 'Leasehold'}
+
+PRICE_PAID = {'A': 'Standard Price Paid',
+              'B': 'Additional Price Paid'}
+
 
 def current_month():
     return endpoint + 'pp-monthly-update.txt'
