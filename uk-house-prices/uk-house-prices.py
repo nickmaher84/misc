@@ -1,5 +1,3 @@
-""" Read this: https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads """
-
 from requests import get
 from csv import DictReader
 from uuid import UUID
@@ -42,6 +40,8 @@ def complete():
 
 
 def download_file(url):
+    """ https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads """
+
     collection = db['house-prices']
     fieldnames = [
         'uuid',
@@ -99,6 +99,8 @@ def download_file(url):
 
 
 def load_postcodes(query):
+    """ https://api.postcodes.io/ """
+
     collection = db['house-prices']
     url = 'https://api.postcodes.io/postcodes/{0}'
 
@@ -120,6 +122,53 @@ def load_postcodes(query):
         )
 
         print('{0}: {1} records updated'.format(postcode, result.modified_count))
+
+
+def load_epc(address=None, postcode=None, local_authority=None, constituency=None):
+    """ https://epc.opendatacommunities.org/docs/api/domestic """
+    n = 0
+
+    params = {
+        'from-year': 1995,
+        'to-year': 2018,
+        'size': 5000,
+    }
+    if address:
+        params['address'] = address
+    if postcode:
+        params['postcode'] = postcode
+    if local_authority:
+        params['local-authority'] = local_authority
+    if constituency:
+        params['constituency'] = constituency
+
+    # collection = db['house-prices']
+    collection = db['epc-certificates']
+    url = 'https://epc.opendatacommunities.org/api/v1/domestic/search'
+
+    # key = 'f7708db9ad243efc7bc8f7f2a191c5d5f04babb2'
+    key = 'bmlja21haGVyODRAZ21haWwuY29tOmY3NzA4ZGI5YWQyNDNlZmM3YmM4ZjdmMmExOTFjNWQ1ZjA0YmFiYjI='
+
+    headers = {
+        'Accept': 'text/csv',
+        'Authorization': 'Basic '+key,
+    }
+
+    response = get(url, params=params, headers=headers, stream=True)
+    print(response.status_code, response.url)
+    response.raise_for_status()
+
+    reader = DictReader(response.iter_lines(decode_unicode=True))
+    for row in reader:
+        ref = row['building-reference-number']
+        collection.update_one(
+            {'_id': ref},
+            {'$setOnInsert': row},
+            upsert=True
+        )
+        n += 1
+
+    print('{1}: {0} records loaded'.format(n, postcode))
 
 
 if __name__ == '__main__':
