@@ -39,7 +39,7 @@ def scrape_players(page=1, rating=None, quality=None, league=None, club=None, na
     if data['page'] < data['totalPages']:
         scrape_players(data['page'] + 1, rating, quality, league, club, position)
 
-    update_prices({'price': {'$exists': False}})
+    # update_prices({'price': {'$exists': False}})
 
 
 def parse_item(item):
@@ -150,7 +150,7 @@ def add_player(item):
          },
         upsert=True)
 
-    print(item['rating'], item['name'])
+    # print(item['rating'], item['name'])
 
 
 def update_prices(p=None):
@@ -208,4 +208,4 @@ def get_futbin_data(player_id):
 
 if __name__ == '__main__':
     scrape_players()
-    update_prices()
+    # update_prices()
